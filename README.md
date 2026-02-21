@@ -21,6 +21,18 @@ uvicorn app.main:app --reload --port 8000
 
 The backend auto-loads `backend/.env` (and root `.env` if present).
 
+Production-style local run (multi-worker):
+
+```bash
+gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 127.0.0.1:8000
+```
+
+Alternative high-performance server (optional install):
+
+```bash
+granian --interface asgi app.main:app --host 127.0.0.1 --port 8000 --workers 4
+```
+
 ## Run frontend
 
 ```bash
@@ -30,6 +42,12 @@ npm run dev
 ```
 
 Frontend dev server proxies `/api` to `http://127.0.0.1:8000`.
+WebSocket traffic under `/api/ws/*` is proxied too.
+
+Optional local font files for zero-network font loading:
+
+- `frontend/public/fonts/press-start-2p.woff2`
+- `frontend/public/fonts/vt323.woff2`
 
 ## Tests
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+import inspect
 import random
 from collections import Counter
 from dataclasses import dataclass, field
@@ -88,8 +89,15 @@ class HandInternal:
 
 class HandEvaluator:
     def __init__(self) -> None:
+        self._phevaluate = None
         self._treys_evaluator = None
         self._treys_card = None
+        try:
+            from phevaluator import evaluate_cards as phevaluate  # type: ignore
+
+            self._phevaluate = phevaluate
+        except Exception:
+            self._phevaluate = None
         try:
             from treys import Card as TreysCard  # type: ignore
             from treys import Evaluator as TreysEvaluator  # type: ignore
@@ -101,6 +109,19 @@ class HandEvaluator:
             self._treys_card = None
 
     def evaluate_winner(self, board: list[str], human_hole: list[str], opponent_hole: list[str]) -> Winner:
+        if self._phevaluate:
+            try:
+                evaluator = self._phevaluate
+                human_score = evaluator(*(board + human_hole))
+                opponent_score = evaluator(*(board + opponent_hole))
+                if human_score < opponent_score:
+                    return "human"
+                if opponent_score < human_score:
+                    return "opponent"
+                return "split"
+            except Exception:
+                pass
+
         if self._treys_evaluator and self._treys_card:
             card_factory = self._treys_card
             evaluator = self._treys_evaluator
@@ -295,7 +316,7 @@ class HeadsUpSession:
             raise KeyError(f"Hand replay not found: {hand_id}")
         return replay
 
-    def process_human_action(self, action_type: ActionType, amount: int | None = None) -> list[ReplayEventModel]:
+    async def process_human_action(self, action_type: ActionType, amount: int | None = None) -> list[ReplayEventModel]:
         hand = self._require_hand()
         if hand.status != "in_progress":
             raise SessionFlowError("Hand is complete. Start the next hand first.")
@@ -304,11 +325,11 @@ class HeadsUpSession:
 
         start_index = len(hand.action_feed)
         self._apply_action(hand, "human", action_type, amount)
-        self._resolve_opponent_turns(hand, max_policy_calls=self.max_policy_calls_per_request)
+        await self._resolve_opponent_turns(hand, max_policy_calls=self.max_policy_calls_per_request)
 
         return hand.action_feed[start_index:]
 
-    def start_next_hand(self) -> SessionStateModel:
+    async def start_next_hand(self) -> SessionStateModel:
         hand = self._require_hand()
         if hand.status != "hand_complete":
             raise SessionFlowError("Current hand is still in progress.")
@@ -318,9 +339,10 @@ class HeadsUpSession:
         self._archive_current_hand()
         self.button_player = other_player(self.button_player)
         self._begin_new_hand()
+        await self._resolve_opponent_turns(self._require_hand(), max_policy_calls=self.max_policy_calls_per_request)
         return self.get_state()
 
-    def rebuy_busted_and_start(self, stack_amount: int = 200) -> SessionStateModel:
+    async def rebuy_busted_and_start(self, stack_amount: int = 200) -> SessionStateModel:
         hand = self._require_hand()
         if hand.status == "in_progress":
             raise SessionFlowError("Cannot rebuy during an active hand.")
@@ -335,6 +357,7 @@ class HeadsUpSession:
         self._archive_current_hand()
         self.button_player = other_player(self.button_player)
         self._begin_new_hand()
+        await self._resolve_opponent_turns(self._require_hand(), max_policy_calls=self.max_policy_calls_per_request)
         return self.get_state()
 
     def _begin_new_hand(self) -> None:
@@ -406,8 +429,6 @@ class HeadsUpSession:
         if self._all_active_all_in(hand):
             self._runout_and_resolve_showdown(hand)
             return
-
-        self._resolve_opponent_turns(hand, max_policy_calls=self.max_policy_calls_per_request)
 
     def _archive_current_hand(self) -> None:
         hand = self._require_hand()
@@ -715,7 +736,7 @@ class HeadsUpSession:
             "blinds": {"small": self.small_blind, "big": self.big_blind},
         }
 
-    def _resolve_opponent_turns(
+    async def _resolve_opponent_turns(
         self,
         hand: HandInternal,
         max_actions: int = 32,
@@ -747,6 +768,8 @@ class HeadsUpSession:
                     game_view=self._opponent_game_view(hand),
                     legal_actions=legal_payload,
                 )
+                if inspect.isawaitable(decision):
+                    decision = await decision
                 policy_calls += 1
             else:
                 decision = self._fallback_decision(legal_for_opponent)

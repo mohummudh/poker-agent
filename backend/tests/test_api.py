@@ -76,3 +76,21 @@ def test_next_hand_does_not_get_stuck_on_opponent_turn() -> None:
 
     if state["status"] == "in_progress":
         assert len(state["legalActions"]) > 0
+
+
+def test_websocket_action_round_trip() -> None:
+    create_resp = client.post("/api/sessions")
+    session_id = create_resp.json()["sessionId"]
+
+    with client.websocket_connect(f"/api/ws/sessions/{session_id}") as websocket:
+        initial = websocket.receive_json()
+        assert initial["type"] == "session_state"
+        assert initial["payload"]["sessionId"] == session_id
+
+        websocket.send_json({"requestId": "req-1", "op": "action", "actionType": "call"})
+        update = websocket.receive_json()
+        assert update["type"] == "action_resolution"
+        assert update["requestId"] == "req-1"
+        actors = {event["actor"] for event in update["payload"]["appliedEvents"]}
+        assert "human" in actors
+        assert "opponent" in actors

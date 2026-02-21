@@ -1,5 +1,7 @@
 fastapi>=0.124.0
 uvicorn>=0.30.0
 treys>=0.1.8
+phevaluator
+orjson
 pytest>=9.0.0
 httpx>=0.28.0

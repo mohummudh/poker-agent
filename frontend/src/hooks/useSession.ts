@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ApiError, pokerApi } from "../api/client";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ApiError, PokerSessionSocket, pokerApi } from "../api/client";
 import { applyMockAction, buildInitialMockState, buildMockHandSummaries, buildMockReplays, createNextMockHand } from "../mock/mockData";
 import type { ActionType, HandReplay, HandSummary, SessionState } from "../types/game";
 
@@ -19,6 +19,7 @@ interface SessionModel {
 }
 
 export function useSession(): SessionModel {
+  const socketRef = useRef<PokerSessionSocket | null>(null);
   const [mode, setMode] = useState<SessionMode>("api");
   const [session, setSession] = useState<SessionState | null>(null);
   const [handSummaries, setHandSummaries] = useState<HandSummary[]>([]);
@@ -28,7 +29,25 @@ export function useSession(): SessionModel {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const closeSocket = useCallback(() => {
+    socketRef.current?.close();
+    socketRef.current = null;
+  }, []);
+
+  const connectSocket = useCallback(
+    async (sessionId: string) => {
+      closeSocket();
+      try {
+        socketRef.current = await pokerApi.openSessionSocket(sessionId);
+      } catch {
+        socketRef.current = null;
+      }
+    },
+    [closeSocket]
+  );
+
   const bootstrapMock = useCallback(() => {
+    closeSocket();
     const mockSession = buildInitialMockState();
     const mockHands = buildMockHandSummaries(mockSession.handId);
     const mockReplays = buildMockReplays(mockSession);
@@ -39,7 +58,7 @@ export function useSession(): SessionModel {
     setSelectedReplay(mockReplays[0] ?? null);
     setLoading(false);
     setError("Backend not reachable. Running in local mock mode.");
-  }, []);
+  }, [closeSocket]);
 
   const refreshHandsFromApi = useCallback(async (sessionId: string) => {
     const hands = await pokerApi.listHands(sessionId);
@@ -72,6 +91,7 @@ export function useSession(): SessionModel {
         setMode("api");
         setSession(initial);
         await refreshHandsFromApi(initial.sessionId);
+        await connectSocket(initial.sessionId);
         if (!cancelled) {
           setError(null);
           setLoading(false);
@@ -86,8 +106,9 @@ export function useSession(): SessionModel {
     void load();
     return () => {
       cancelled = true;
+      closeSocket();
     };
-  }, [bootstrapMock, refreshHandsFromApi]);
+  }, [bootstrapMock, closeSocket, connectSocket, refreshHandsFromApi]);
 
   const submitAction = useCallback(
     async (type: ActionType, amount?: number) => {
@@ -97,7 +118,16 @@ export function useSession(): SessionModel {
       setSubmitting(true);
       try {
         if (mode === "api") {
-          const result = await pokerApi.submitAction(session.sessionId, { actionType: type, amount });
+          let result;
+          if (socketRef.current?.isConnected()) {
+            try {
+              result = await socketRef.current.submitAction({ actionType: type, amount });
+            } catch {
+              result = await pokerApi.submitAction(session.sessionId, { actionType: type, amount });
+            }
+          } else {
+            result = await pokerApi.submitAction(session.sessionId, { actionType: type, amount });
+          }
           setSession(result.sessionState);
           if (result.handComplete) {
             refreshHandsInBackground(session.sessionId);
@@ -154,10 +184,25 @@ export function useSession(): SessionModel {
     setSubmitting(true);
     try {
       if (mode === "api") {
-        const next =
-          session.status === "session_complete"
-            ? await pokerApi.rebuy(session.sessionId)
-            : await pokerApi.nextHand(session.sessionId);
+        let next;
+        if (socketRef.current?.isConnected()) {
+          try {
+            next =
+              session.status === "session_complete"
+                ? await socketRef.current.rebuy()
+                : await socketRef.current.nextHand();
+          } catch {
+            next =
+              session.status === "session_complete"
+                ? await pokerApi.rebuy(session.sessionId)
+                : await pokerApi.nextHand(session.sessionId);
+          }
+        } else {
+          next =
+            session.status === "session_complete"
+              ? await pokerApi.rebuy(session.sessionId)
+              : await pokerApi.nextHand(session.sessionId);
+        }
         setSession(next);
         refreshHandsInBackground(session.sessionId);
         setError(null);

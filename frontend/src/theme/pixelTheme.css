@@ -1,4 +1,24 @@
-@import url("https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap");
+@font-face {
+  font-family: "Press Start 2P";
+  src:
+    local("Press Start 2P"),
+    local("PressStart2P-Regular"),
+    url("/fonts/press-start-2p.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "VT323";
+  src:
+    local("VT323"),
+    local("VT323-Regular"),
+    url("/fonts/vt323.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
 
 :root {
   --grid: 8px;
@@ -556,18 +576,26 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  display: grid;
-  gap: 6px;
+  position: relative;
+}
+
+.action-feed-scroll {
   max-height: 270px;
   overflow: auto;
+  border: 2px solid #303853;
+  background: #ede7d0;
 }
 
 .action-feed-item {
+  position: absolute;
+  left: 0;
+  right: 0;
   display: grid;
   gap: 2px;
   border: 2px solid #303853;
   background: #e9eefb;
   padding: 6px;
+  min-height: 58px;
 }
 
 .event-street {
@@ -577,6 +605,9 @@
 
 .event-body {
   font-size: 1.05rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .actor-human {

@@ -40,14 +40,14 @@ class ActionDecision:
 
 
 class OpponentPolicy(Protocol):
-    def decide_action(self, game_view: dict[str, Any], legal_actions: list[dict[str, Any]]) -> ActionDecision:
+    async def decide_action(self, game_view: dict[str, Any], legal_actions: list[dict[str, Any]]) -> ActionDecision:
         ...
 
 
 class DeterministicPolicy:
     """Safe fallback policy that always returns a legal action preference order."""
 
-    def decide_action(self, game_view: dict[str, Any], legal_actions: list[dict[str, Any]]) -> ActionDecision:
+    async def decide_action(self, game_view: dict[str, Any], legal_actions: list[dict[str, Any]]) -> ActionDecision:
         del game_view
         by_type = {item["type"]: item for item in legal_actions}
 
@@ -94,9 +94,9 @@ class GeminiPolicy:
         self.fallback = fallback or DeterministicPolicy()
         self._decision_cache: OrderedDict[str, ActionDecision] = OrderedDict()
         self._cache_lock = threading.Lock()
-        self._http = httpx.Client(
+        self._http = httpx.AsyncClient(
             timeout=httpx.Timeout(self.timeout_seconds),
-            limits=httpx.Limits(max_connections=32, max_keepalive_connections=16),
+            limits=httpx.Limits(max_connections=64, max_keepalive_connections=32),
             headers={"Content-Type": "application/json"},
             http2=False,
         )
@@ -110,13 +110,16 @@ class GeminiPolicy:
         cache_size = int(os.getenv("LLM_CACHE_SIZE", "512"))
         return cls(api_key=api_key, model=model, timeout_ms=timeout_ms, retries=retries, cache_size=cache_size)
 
-    def decide_action(self, game_view: dict[str, Any], legal_actions: list[dict[str, Any]]) -> ActionDecision:
+    async def aclose(self) -> None:
+        await self._http.aclose()
+
+    async def decide_action(self, game_view: dict[str, Any], legal_actions: list[dict[str, Any]]) -> ActionDecision:
         fast = self._fast_path_decision(legal_actions)
         if fast:
             return fast
 
         if not self.api_key:
-            return self.fallback.decide_action(game_view, legal_actions)
+            return await self.fallback.decide_action(game_view, legal_actions)
 
         cache_key = self._decision_cache_key(game_view, legal_actions)
         cached = self._cache_get(cache_key)
@@ -125,7 +128,7 @@ class GeminiPolicy:
 
         for attempt in range(self.retries + 1):
             try:
-                response_text = self._request_action(game_view, legal_actions)
+                response_text = await self._request_action(game_view, legal_actions)
                 parsed = self._parse_json_response(response_text)
                 action_type = str(parsed.get("action_type", "")).strip().lower()
                 amount = parsed.get("amount")
@@ -140,9 +143,9 @@ class GeminiPolicy:
             except Exception as exc:  # pragma: no cover - network errors vary by environment
                 logger.warning("Gemini decision attempt %s failed: %s", attempt + 1, exc)
 
-        return self.fallback.decide_action(game_view, legal_actions)
+        return await self.fallback.decide_action(game_view, legal_actions)
 
-    def _request_action(self, game_view: dict[str, Any], legal_actions: list[dict[str, Any]]) -> str:
+    async def _request_action(self, game_view: dict[str, Any], legal_actions: list[dict[str, Any]]) -> str:
         if not self.api_key:
             raise RuntimeError("Gemini API key missing.")
 
@@ -172,11 +175,10 @@ class GeminiPolicy:
 
         model = self.model.replace("/", "%2F")
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
-        response = self._http.post(url, json=payload)
+        response = await self._http.post(url, json=payload)
         response.raise_for_status()
-        response_body = response.text
 
-        parsed = json.loads(response_body)
+        parsed = response.json()
         text = (
             parsed.get("candidates", [{}])[0]
             .get("content", {})
@@ -240,7 +242,6 @@ class GeminiPolicy:
             return ActionDecision(action_type=only["type"])
 
         legal_types = {item["type"] for item in legal_actions}
-        # Purely passive node: checking is always the zero-latency optimal default.
         if legal_types == {"check"}:
             return ActionDecision(action_type="check")
         return None

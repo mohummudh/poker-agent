@@ -1,3 +1,5 @@
+import asyncio
+
 from backend.app.engine import HeadsUpSession, InvalidActionError, build_shuffled_deck
 from backend.app.opponent import ActionDecision, DeterministicPolicy
 
@@ -6,7 +8,7 @@ class CountingPolicy:
     def __init__(self) -> None:
         self.calls = 0
 
-    def decide_action(self, game_view, legal_actions):  # type: ignore[no-untyped-def]
+    async def decide_action(self, game_view, legal_actions):  # type: ignore[no-untyped-def]
         del game_view
         self.calls += 1
         by_type = {item["type"]: item for item in legal_actions}
@@ -46,7 +48,7 @@ def test_min_raise_validation() -> None:
     session = HeadsUpSession(session_id="s2", opponent_policy=DeterministicPolicy())
 
     try:
-        session.process_human_action("raise", amount=2)
+        asyncio.run(session.process_human_action("raise", amount=2))
         assert False, "Expected invalid action"
     except InvalidActionError as exc:
         legal_types = {item.type for item in exc.legal_actions}
@@ -60,7 +62,7 @@ def test_unmatched_chips_return_on_uneven_all_in_showdown() -> None:
         starting_stacks={"human": 200, "opponent": 40},
     )
 
-    session.process_human_action("all_in", amount=199)
+    asyncio.run(session.process_human_action("all_in", amount=199))
     state = session.get_state()
 
     assert state.status in {"hand_complete", "session_complete"}
@@ -70,7 +72,7 @@ def test_unmatched_chips_return_on_uneven_all_in_showdown() -> None:
 
 def test_opponent_auto_acts_until_human_turn_after_first_move() -> None:
     session = HeadsUpSession(session_id="s4", opponent_policy=DeterministicPolicy())
-    resolution_events = session.process_human_action("call")
+    resolution_events = asyncio.run(session.process_human_action("call"))
     assert len(resolution_events) >= 2
 
     state = session.get_state()
@@ -81,8 +83,8 @@ def test_opponent_auto_acts_until_human_turn_after_first_move() -> None:
 
 def test_next_hand_never_stuck_without_human_actions() -> None:
     session = HeadsUpSession(session_id="s5", opponent_policy=DeterministicPolicy())
-    session.process_human_action("fold")
-    next_state = session.start_next_hand()
+    asyncio.run(session.process_human_action("fold"))
+    next_state = asyncio.run(session.start_next_hand())
 
     if next_state.status == "in_progress":
         assert len(next_state.legal_actions) > 0
@@ -96,7 +98,7 @@ def test_policy_call_budget_zero_uses_fallback_path() -> None:
         max_policy_calls_per_request=0,
     )
 
-    session.process_human_action("call")
+    asyncio.run(session.process_human_action("call"))
     assert policy.calls == 0
 
 
@@ -116,7 +118,7 @@ def test_live_feed_is_capped_for_fast_state_payloads() -> None:
             break
         preferred = next((item for item in state.legal_actions if item.type in {"check", "call"}), state.legal_actions[0])
         amount = preferred.min_amount if preferred.type in {"bet", "raise", "all_in"} else None
-        session.process_human_action(preferred.type, amount)
+        asyncio.run(session.process_human_action(preferred.type, amount))
 
     capped_state = session.get_state()
     assert len(capped_state.action_feed) <= 3
