@@ -1,0 +1,27 @@
+@import "./theme/pixelTheme.css";
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--navy-900);
+  text-rendering: geometricPrecision;
+  background: var(--sky-400);
+}
+
+button,
+input {
+  font: inherit;
+}
