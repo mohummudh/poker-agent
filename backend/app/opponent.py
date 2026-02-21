@@ -14,6 +14,25 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
+def _normalize_api_key(raw: str | None) -> str | None:
+    if raw is None:
+        return None
+
+    value = raw.strip()
+    if not value:
+        return None
+
+    if value.lower() in {
+        "your_gemini_api_key_here",
+        "replace_with_gemini_key",
+        "__replace_me__",
+        "changeme",
+    }:
+        return None
+
+    return value
+
+
 @dataclass(frozen=True)
 class ActionDecision:
     action_type: str
@@ -84,8 +103,8 @@ class GeminiPolicy:
 
     @classmethod
     def from_env(cls) -> "GeminiPolicy":
-        api_key = os.getenv("GEMINI_API_KEY")
-        model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+        api_key = _normalize_api_key(os.getenv("GEMINI_API_KEY"))
+        model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         timeout_ms = int(os.getenv("LLM_TIMEOUT_MS", "2500"))
         retries = int(os.getenv("LLM_RETRIES", "0"))
         cache_size = int(os.getenv("LLM_CACHE_SIZE", "512"))

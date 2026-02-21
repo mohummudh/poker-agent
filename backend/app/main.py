@@ -3,9 +3,12 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from .config import load_environment
 from .engine import InvalidActionError, SessionFlowError
 from .models import ActionResolutionModel, HandReplayModel, HandSummaryModel, HumanActionRequestModel, SessionStateModel
 from .session_manager import SessionManager, SessionNotFoundError
+
+load_environment()
 
 app = FastAPI(title="Pixel Poker API", version="0.1.0")
 

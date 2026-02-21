@@ -6,6 +6,7 @@ Heads-up no-limit Texas Hold'em where a human plays against an LLM-driven oppone
 
 ```bash
 cd backend
+cp .env.example .env
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -17,6 +18,8 @@ pip install -r requirements.txt
 # export LIVE_FEED_LIMIT=80
 uvicorn app.main:app --reload --port 8000
 ```
+
+The backend auto-loads `backend/.env` (and root `.env` if present).
 
 ## Run frontend
 

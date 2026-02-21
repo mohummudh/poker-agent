@@ -23,4 +23,9 @@ describe("PlayerPanel", () => {
     expect(screen.getByLabelText("Card AH")).toBeInTheDocument();
     expect(screen.getByLabelText("Card KD")).toBeInTheDocument();
   });
+
+  it("renders speech bubble text when provided", () => {
+    render(<PlayerPanel player={basePlayer} roleLabel="Opponent" revealCards={false} speechBubbleText="check" />);
+    expect(screen.getByText("check")).toBeInTheDocument();
+  });
 });

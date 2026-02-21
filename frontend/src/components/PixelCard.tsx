@@ -1,5 +1,9 @@
 import { memo } from "react";
 import type { CSSProperties } from "react";
+import clubIcon from "../assets/pixel/suits/club.svg";
+import diamondIcon from "../assets/pixel/suits/diamond.svg";
+import heartIcon from "../assets/pixel/suits/heart.svg";
+import spadeIcon from "../assets/pixel/suits/spade.svg";
 
 interface PixelCardProps {
   card?: string;
@@ -7,7 +11,18 @@ interface PixelCardProps {
   size?: "sm" | "md";
 }
 
-const RED_SUITS = new Set(["h", "d"]);
+const SUIT_META: Record<
+  string,
+  {
+    icon: string;
+    colorClass: "" | "is-red";
+  }
+> = {
+  h: { icon: heartIcon, colorClass: "is-red" },
+  d: { icon: diamondIcon, colorClass: "is-red" },
+  c: { icon: clubIcon, colorClass: "" },
+  s: { icon: spadeIcon, colorClass: "" }
+};
 
 function splitCard(card = "??"): { rank: string; suit: string } {
   if (card.length < 2) {
@@ -18,24 +33,9 @@ function splitCard(card = "??"): { rank: string; suit: string } {
   return { rank, suit };
 }
 
-function suitToGlyph(suit: string): string {
-  if (suit === "h") {
-    return "H";
-  }
-  if (suit === "d") {
-    return "D";
-  }
-  if (suit === "c") {
-    return "C";
-  }
-  if (suit === "s") {
-    return "S";
-  }
-  return "?";
-}
-
 export const PixelCard = memo(function PixelCard({ card, hidden = false, size = "md" }: PixelCardProps) {
   const { rank, suit } = splitCard(card);
+  const suitMeta = SUIT_META[suit] ?? SUIT_META.s;
   const style = {
     "--card-scale": size === "sm" ? "0.85" : "1"
   } as CSSProperties;
@@ -50,8 +50,19 @@ export const PixelCard = memo(function PixelCard({ card, hidden = false, size = 
 
   return (
     <div className="pixel-card" style={style} aria-label={`Card ${rank}${suit.toUpperCase()}`}>
-      <span className={`pixel-card-rank ${RED_SUITS.has(suit) ? "is-red" : ""}`}>{rank}</span>
-      <span className={`pixel-card-suit ${RED_SUITS.has(suit) ? "is-red" : ""}`}>{suitToGlyph(suit)}</span>
+      <div className={`pixel-card-corner pixel-card-corner-top ${suitMeta.colorClass}`}>
+        <span className="pixel-card-rank">{rank}</span>
+        <img src={suitMeta.icon} alt="" className="pixel-card-suit-icon" />
+      </div>
+
+      <div className="pixel-card-face">
+        <img src={suitMeta.icon} alt="" className="pixel-card-face-icon" />
+      </div>
+
+      <div className={`pixel-card-corner pixel-card-corner-bottom ${suitMeta.colorClass}`}>
+        <span className="pixel-card-rank">{rank}</span>
+        <img src={suitMeta.icon} alt="" className="pixel-card-suit-icon" />
+      </div>
     </div>
   );
 });

@@ -37,6 +37,16 @@ export default function App() {
 
   const showNextHand = session.status === "hand_complete" || session.status === "session_complete";
   const opponentVisible = session.players.opponent.cardsVisible || session.street === "showdown" || showNextHand;
+  let opponentSpeech = session.status === "in_progress" ? "Waiting..." : "Good hand.";
+  for (let idx = session.actionFeed.length - 1; idx >= 0; idx -= 1) {
+    const event = session.actionFeed[idx];
+    if (event.actor !== "opponent") {
+      continue;
+    }
+    const amountSuffix = event.amount ? ` ${event.amount}` : "";
+    opponentSpeech = `${event.action}${amountSuffix}`;
+    break;
+  }
 
   return (
     <main className="pixel-app">
@@ -59,7 +69,12 @@ export default function App() {
 
       <div className="game-shell">
         <section className="table-column">
-          <PlayerPanel player={session.players.opponent} roleLabel="Opponent" revealCards={opponentVisible} />
+          <PlayerPanel
+            player={session.players.opponent}
+            roleLabel="Opponent"
+            revealCards={opponentVisible}
+            speechBubbleText={opponentSpeech}
+          />
           <BoardStage pot={session.pot} street={session.street} board={session.board} />
           <PlayerPanel player={session.players.human} roleLabel="Player" revealCards />
 
