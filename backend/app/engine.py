@@ -300,24 +300,7 @@ class HeadsUpSession:
 
         start_index = len(hand.action_feed)
         self._apply_action(hand, "human", action_type, amount)
-
-        if hand.status == "in_progress" and hand.actor_to_act == "opponent":
-            legal_for_opponent = self._legal_actions(hand, "opponent")
-            legal_payload = [
-                {
-                    "type": item.type,
-                    "min_amount": item.min_amount,
-                    "max_amount": item.max_amount,
-                    "to_call": item.to_call,
-                }
-                for item in legal_for_opponent
-            ]
-            decision = self.opponent_policy.decide_action(
-                game_view=self._opponent_game_view(hand),
-                legal_actions=legal_payload,
-            )
-            sanitized = self._sanitize_decision(decision, legal_for_opponent)
-            self._apply_action(hand, "opponent", sanitized.action_type, sanitized.amount)
+        self._resolve_opponent_turns(hand)
 
         return hand.action_feed[start_index:]
 
@@ -418,6 +401,9 @@ class HeadsUpSession:
 
         if self._all_active_all_in(hand):
             self._runout_and_resolve_showdown(hand)
+            return
+
+        self._resolve_opponent_turns(hand)
 
     def _archive_current_hand(self) -> None:
         hand = self._require_hand()
@@ -722,6 +708,34 @@ class HeadsUpSession:
             "button": self.button_player,
             "blinds": {"small": self.small_blind, "big": self.big_blind},
         }
+
+    def _resolve_opponent_turns(self, hand: HandInternal, max_actions: int = 32) -> None:
+        """Advance autonomous opponent actions until the human can act or hand ends."""
+        action_count = 0
+        while hand.status == "in_progress" and hand.actor_to_act == "opponent":
+            if action_count >= max_actions:
+                raise SessionFlowError("Exceeded opponent auto-action safety limit.")
+
+            legal_for_opponent = self._legal_actions(hand, "opponent")
+            if not legal_for_opponent:
+                raise SessionFlowError("Opponent has no legal actions while on turn.")
+
+            legal_payload = [
+                {
+                    "type": item.type,
+                    "min_amount": item.min_amount,
+                    "max_amount": item.max_amount,
+                    "to_call": item.to_call,
+                }
+                for item in legal_for_opponent
+            ]
+            decision = self.opponent_policy.decide_action(
+                game_view=self._opponent_game_view(hand),
+                legal_actions=legal_payload,
+            )
+            sanitized = self._sanitize_decision(decision, legal_for_opponent)
+            self._apply_action(hand, "opponent", sanitized.action_type, sanitized.amount)
+            action_count += 1
 
     def _commit_chips(self, hand: HandInternal, actor: PlayerId, amount: int) -> int:
         player = hand.players[actor]

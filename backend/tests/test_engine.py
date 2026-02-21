@@ -45,3 +45,23 @@ def test_unmatched_chips_return_on_uneven_all_in_showdown() -> None:
     assert state.status in {"hand_complete", "session_complete"}
     assert state.players.human.stack >= 160
     assert state.players.human.stack + state.players.opponent.stack == 240
+
+
+def test_opponent_auto_acts_until_human_turn_after_first_move() -> None:
+    session = HeadsUpSession(session_id="s4", opponent_policy=DeterministicPolicy())
+    resolution_events = session.process_human_action("call")
+    assert len(resolution_events) >= 2
+
+    state = session.get_state()
+    if state.status == "in_progress":
+        assert len(state.legal_actions) > 0
+        assert any(action.type in {"check", "call", "bet", "raise", "all_in", "fold"} for action in state.legal_actions)
+
+
+def test_next_hand_never_stuck_without_human_actions() -> None:
+    session = HeadsUpSession(session_id="s5", opponent_policy=DeterministicPolicy())
+    session.process_human_action("fold")
+    next_state = session.start_next_hand()
+
+    if next_state.status == "in_progress":
+        assert len(next_state.legal_actions) > 0

@@ -57,3 +57,22 @@ def test_human_action_triggers_ai_action_and_replay_available() -> None:
     replay = replay_resp.json()
     assert replay["handId"] == hand_id
     assert len(replay["events"]) >= 1
+
+
+def test_next_hand_does_not_get_stuck_on_opponent_turn() -> None:
+    create_resp = client.post("/api/sessions")
+    session_id = create_resp.json()["sessionId"]
+
+    # End first hand quickly, then start the next hand where button alternates.
+    fold_resp = client.post(
+        f"/api/sessions/{session_id}/actions",
+        json={"actionType": "fold"},
+    )
+    assert fold_resp.status_code == 200
+
+    next_resp = client.post(f"/api/sessions/{session_id}/next-hand")
+    assert next_resp.status_code == 200
+    state = next_resp.json()
+
+    if state["status"] == "in_progress":
+        assert len(state["legalActions"]) > 0
