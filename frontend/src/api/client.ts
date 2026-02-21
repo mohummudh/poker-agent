@@ -32,6 +32,10 @@ export class PokerApiClient {
     return this.request<SessionState>(`/sessions/${sessionId}/next-hand`, { method: "POST" });
   }
 
+  async rebuy(sessionId: string): Promise<SessionState> {
+    return this.request<SessionState>(`/sessions/${sessionId}/rebuy`, { method: "POST" });
+  }
+
   async listHands(sessionId: string): Promise<HandSummary[]> {
     return this.request<HandSummary[]>(`/sessions/${sessionId}/hands`);
   }

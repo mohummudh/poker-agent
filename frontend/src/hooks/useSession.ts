@@ -145,8 +145,12 @@ export function useSession(): SessionModel {
     setSubmitting(true);
     try {
       if (mode === "api") {
-        const next = await pokerApi.nextHand(session.sessionId);
+        const next =
+          session.status === "session_complete"
+            ? await pokerApi.rebuy(session.sessionId)
+            : await pokerApi.nextHand(session.sessionId);
         setSession(next);
+        await refreshHandsFromApi(session.sessionId);
         setError(null);
       } else {
         const next = createNextMockHand(session);
@@ -174,7 +178,7 @@ export function useSession(): SessionModel {
     } finally {
       setSubmitting(false);
     }
-  }, [mode, session]);
+  }, [mode, refreshHandsFromApi, session]);
 
   const selectReplay = useCallback(
     async (handId: string) => {

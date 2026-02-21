@@ -28,6 +28,7 @@ export interface ReplayEvent {
   board: string[];
   stacks: Record<"human" | "opponent", number>;
   holeCardVisibility: Record<"human" | "opponent", boolean>;
+  seedRef?: string;
 }
 
 export interface HandSummary {

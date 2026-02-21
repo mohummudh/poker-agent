@@ -67,7 +67,7 @@ export default function App() {
 
           {showNextHand ? (
             <button className="pixel-btn next-hand-btn" type="button" onClick={() => void nextHand()} disabled={submitting}>
-              Start Next Hand
+              {session.status === "session_complete" ? "Rebuy & Start Next Hand" : "Start Next Hand"}
             </button>
           ) : null}
         </section>
