@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import type { ActionType, LegalAction } from "../types/game";
 
 interface ActionControlsProps {
@@ -16,7 +16,7 @@ function toLabel(action: ActionType): string {
   return action.charAt(0).toUpperCase() + action.slice(1);
 }
 
-export function ActionControls({ legalActions, disabled, onSubmit }: ActionControlsProps) {
+export const ActionControls = memo(function ActionControls({ legalActions, disabled, onSubmit }: ActionControlsProps) {
   const legalByType = useMemo(() => new Map(legalActions.map((item) => [item.type, item])), [legalActions]);
   const betLike = legalByType.get("raise") ?? legalByType.get("bet") ?? legalByType.get("all_in");
 
@@ -108,4 +108,4 @@ export function ActionControls({ legalActions, disabled, onSubmit }: ActionContr
       </div>
     </section>
   );
-}
+});

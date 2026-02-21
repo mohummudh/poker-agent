@@ -1,5 +1,26 @@
 from backend.app.engine import HeadsUpSession, InvalidActionError, build_shuffled_deck
-from backend.app.opponent import DeterministicPolicy
+from backend.app.opponent import ActionDecision, DeterministicPolicy
+
+
+class CountingPolicy:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def decide_action(self, game_view, legal_actions):  # type: ignore[no-untyped-def]
+        del game_view
+        self.calls += 1
+        by_type = {item["type"]: item for item in legal_actions}
+        if "check" in by_type:
+            return ActionDecision("check")
+        if "call" in by_type:
+            return ActionDecision("call")
+        if "fold" in by_type:
+            return ActionDecision("fold")
+        if "bet" in by_type:
+            return ActionDecision("bet", by_type["bet"].get("min_amount"))
+        if "raise" in by_type:
+            return ActionDecision("raise", by_type["raise"].get("min_amount"))
+        return ActionDecision("all_in", by_type["all_in"].get("max_amount"))
 
 
 def test_deck_is_deterministic_and_unique() -> None:
@@ -65,3 +86,37 @@ def test_next_hand_never_stuck_without_human_actions() -> None:
 
     if next_state.status == "in_progress":
         assert len(next_state.legal_actions) > 0
+
+
+def test_policy_call_budget_zero_uses_fallback_path() -> None:
+    policy = CountingPolicy()
+    session = HeadsUpSession(
+        session_id="s6",
+        opponent_policy=policy,  # type: ignore[arg-type]
+        max_policy_calls_per_request=0,
+    )
+
+    session.process_human_action("call")
+    assert policy.calls == 0
+
+
+def test_live_feed_is_capped_for_fast_state_payloads() -> None:
+    session = HeadsUpSession(
+        session_id="s7",
+        opponent_policy=DeterministicPolicy(),
+        live_feed_limit=3,
+    )
+
+    # Walk a hand to generate enough events.
+    while True:
+        state = session.get_state()
+        if state.status != "in_progress":
+            break
+        if not state.legal_actions:
+            break
+        preferred = next((item for item in state.legal_actions if item.type in {"check", "call"}), state.legal_actions[0])
+        amount = preferred.min_amount if preferred.type in {"bet", "raise", "all_in"} else None
+        session.process_human_action(preferred.type, amount)
+
+    capped_state = session.get_state()
+    assert len(capped_state.action_feed) <= 3

@@ -216,12 +216,16 @@ class HeadsUpSession:
         small_blind: int = 1,
         big_blind: int = 2,
         starting_stacks: int | dict[PlayerId, int] = 200,
+        live_feed_limit: int = 80,
+        max_policy_calls_per_request: int = 1,
     ) -> None:
         self.session_id = session_id
         self.small_blind = small_blind
         self.big_blind = big_blind
         self.opponent_policy = opponent_policy
         self.evaluator = HandEvaluator()
+        self.live_feed_limit = max(1, live_feed_limit)
+        self.max_policy_calls_per_request = max(0, max_policy_calls_per_request)
 
         if isinstance(starting_stacks, int):
             self.stacks: dict[PlayerId, int] = {"human": starting_stacks, "opponent": starting_stacks}
@@ -268,7 +272,7 @@ class HeadsUpSession:
             board=list(hand.board),
             players=SessionPlayersModel(human=human_model, opponent=opponent_model),
             legal_actions=legal_actions,
-            action_feed=list(hand.action_feed),
+            action_feed=list(hand.action_feed[-self.live_feed_limit :]),
             status=status,
         )
 
@@ -300,7 +304,7 @@ class HeadsUpSession:
 
         start_index = len(hand.action_feed)
         self._apply_action(hand, "human", action_type, amount)
-        self._resolve_opponent_turns(hand)
+        self._resolve_opponent_turns(hand, max_policy_calls=self.max_policy_calls_per_request)
 
         return hand.action_feed[start_index:]
 
@@ -403,7 +407,7 @@ class HeadsUpSession:
             self._runout_and_resolve_showdown(hand)
             return
 
-        self._resolve_opponent_turns(hand)
+        self._resolve_opponent_turns(hand, max_policy_calls=self.max_policy_calls_per_request)
 
     def _archive_current_hand(self) -> None:
         hand = self._require_hand()
@@ -697,6 +701,7 @@ class HeadsUpSession:
     def _opponent_game_view(self, hand: HandInternal) -> dict[str, Any]:
         human = hand.players["human"]
         opponent = hand.players["opponent"]
+        to_call = max(0, hand.current_bet - opponent.committed)
         return {
             "hand_id": hand.hand_id,
             "street": hand.street,
@@ -705,13 +710,21 @@ class HeadsUpSession:
             "opponent_hole_cards": list(opponent.hole_cards),
             "stacks": {"human": human.stack, "opponent": opponent.stack},
             "committed": {"human": human.committed, "opponent": opponent.committed},
+            "to_call": to_call,
             "button": self.button_player,
             "blinds": {"small": self.small_blind, "big": self.big_blind},
         }
 
-    def _resolve_opponent_turns(self, hand: HandInternal, max_actions: int = 32) -> None:
+    def _resolve_opponent_turns(
+        self,
+        hand: HandInternal,
+        max_actions: int = 32,
+        max_policy_calls: int | None = None,
+    ) -> None:
         """Advance autonomous opponent actions until the human can act or hand ends."""
         action_count = 0
+        policy_calls = 0
+        policy_limit = self.max_policy_calls_per_request if max_policy_calls is None else max_policy_calls
         while hand.status == "in_progress" and hand.actor_to_act == "opponent":
             if action_count >= max_actions:
                 raise SessionFlowError("Exceeded opponent auto-action safety limit.")
@@ -729,10 +742,14 @@ class HeadsUpSession:
                 }
                 for item in legal_for_opponent
             ]
-            decision = self.opponent_policy.decide_action(
-                game_view=self._opponent_game_view(hand),
-                legal_actions=legal_payload,
-            )
+            if policy_calls < policy_limit:
+                decision = self.opponent_policy.decide_action(
+                    game_view=self._opponent_game_view(hand),
+                    legal_actions=legal_payload,
+                )
+                policy_calls += 1
+            else:
+                decision = self._fallback_decision(legal_for_opponent)
             sanitized = self._sanitize_decision(decision, legal_for_opponent)
             self._apply_action(hand, "opponent", sanitized.action_type, sanitized.amount)
             action_count += 1

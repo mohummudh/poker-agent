@@ -50,6 +50,15 @@ export function useSession(): SessionModel {
     }
   }, []);
 
+  const refreshHandsInBackground = useCallback(
+    (sessionId: string) => {
+      void refreshHandsFromApi(sessionId).catch(() => {
+        setError("Could not refresh replay history.");
+      });
+    },
+    [refreshHandsFromApi]
+  );
+
   useEffect(() => {
     let cancelled = false;
 
@@ -91,7 +100,7 @@ export function useSession(): SessionModel {
           const result = await pokerApi.submitAction(session.sessionId, { actionType: type, amount });
           setSession(result.sessionState);
           if (result.handComplete) {
-            await refreshHandsFromApi(session.sessionId);
+            refreshHandsInBackground(session.sessionId);
           }
           setError(null);
         } else {
@@ -135,7 +144,7 @@ export function useSession(): SessionModel {
         setSubmitting(false);
       }
     },
-    [mode, refreshHandsFromApi, session]
+    [mode, refreshHandsInBackground, session]
   );
 
   const nextHand = useCallback(async () => {
@@ -150,7 +159,7 @@ export function useSession(): SessionModel {
             ? await pokerApi.rebuy(session.sessionId)
             : await pokerApi.nextHand(session.sessionId);
         setSession(next);
-        await refreshHandsFromApi(session.sessionId);
+        refreshHandsInBackground(session.sessionId);
         setError(null);
       } else {
         const next = createNextMockHand(session);
@@ -178,7 +187,7 @@ export function useSession(): SessionModel {
     } finally {
       setSubmitting(false);
     }
-  }, [mode, refreshHandsFromApi, session]);
+  }, [mode, refreshHandsInBackground, session]);
 
   const selectReplay = useCallback(
     async (handId: string) => {

@@ -58,7 +58,7 @@ export default function App() {
       {error ? <div className="pixel-panel error-banner">{error}</div> : null}
 
       <div className="game-shell">
-        <section className="table-column" key={session.handId}>
+        <section className="table-column">
           <PlayerPanel player={session.players.opponent} roleLabel="Opponent" revealCards={opponentVisible} />
           <BoardStage pot={session.pot} street={session.street} board={session.board} />
           <PlayerPanel player={session.players.human} roleLabel="Player" revealCards />

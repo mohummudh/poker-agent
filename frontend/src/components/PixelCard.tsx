@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { CSSProperties } from "react";
 
 interface PixelCardProps {
@@ -33,7 +34,7 @@ function suitToGlyph(suit: string): string {
   return "?";
 }
 
-export function PixelCard({ card, hidden = false, size = "md" }: PixelCardProps) {
+export const PixelCard = memo(function PixelCard({ card, hidden = false, size = "md" }: PixelCardProps) {
   const { rank, suit } = splitCard(card);
   const style = {
     "--card-scale": size === "sm" ? "0.85" : "1"
@@ -53,4 +54,4 @@ export function PixelCard({ card, hidden = false, size = "md" }: PixelCardProps)
       <span className={`pixel-card-suit ${RED_SUITS.has(suit) ? "is-red" : ""}`}>{suitToGlyph(suit)}</span>
     </div>
   );
-}
+});

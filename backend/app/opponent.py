@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
-import urllib.error
-import urllib.parse
-import urllib.request
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Protocol
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -49,31 +51,58 @@ class DeterministicPolicy:
 class GeminiPolicy:
     """Gemini-backed policy with strict JSON output and deterministic fallback."""
 
+    _SYSTEM_PROMPT = (
+        "You are a heads-up no-limit Texas Hold'em bot.\n"
+        "Return JSON only with schema: "
+        '{"action_type":"fold|check|call|bet|raise|all_in","amount":<int optional>}.\n'
+        "Choose from legal_actions only."
+    )
+
     def __init__(
         self,
         api_key: str | None,
         model: str,
         timeout_ms: int,
-        retries: int = 1,
+        retries: int = 0,
+        cache_size: int = 512,
         fallback: OpponentPolicy | None = None,
     ) -> None:
         self.api_key = api_key
         self.model = model
-        self.timeout_seconds = max(1.0, timeout_ms / 1000.0)
+        self.timeout_seconds = max(0.5, timeout_ms / 1000.0)
         self.retries = max(0, retries)
+        self.cache_size = max(0, cache_size)
         self.fallback = fallback or DeterministicPolicy()
+        self._decision_cache: OrderedDict[str, ActionDecision] = OrderedDict()
+        self._cache_lock = threading.Lock()
+        self._http = httpx.Client(
+            timeout=httpx.Timeout(self.timeout_seconds),
+            limits=httpx.Limits(max_connections=32, max_keepalive_connections=16),
+            headers={"Content-Type": "application/json"},
+            http2=False,
+        )
 
     @classmethod
     def from_env(cls) -> "GeminiPolicy":
         api_key = os.getenv("GEMINI_API_KEY")
         model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-        timeout_ms = int(os.getenv("LLM_TIMEOUT_MS", "5000"))
-        retries = int(os.getenv("LLM_RETRIES", "1"))
-        return cls(api_key=api_key, model=model, timeout_ms=timeout_ms, retries=retries)
+        timeout_ms = int(os.getenv("LLM_TIMEOUT_MS", "2500"))
+        retries = int(os.getenv("LLM_RETRIES", "0"))
+        cache_size = int(os.getenv("LLM_CACHE_SIZE", "512"))
+        return cls(api_key=api_key, model=model, timeout_ms=timeout_ms, retries=retries, cache_size=cache_size)
 
     def decide_action(self, game_view: dict[str, Any], legal_actions: list[dict[str, Any]]) -> ActionDecision:
+        fast = self._fast_path_decision(legal_actions)
+        if fast:
+            return fast
+
         if not self.api_key:
             return self.fallback.decide_action(game_view, legal_actions)
+
+        cache_key = self._decision_cache_key(game_view, legal_actions)
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
 
         for attempt in range(self.retries + 1):
             try:
@@ -86,7 +115,9 @@ class GeminiPolicy:
                 if amount is not None and not isinstance(amount, int):
                     amount = None
                 if action_type:
-                    return ActionDecision(action_type=action_type, amount=amount)
+                    decision = ActionDecision(action_type=action_type, amount=amount)
+                    self._cache_put(cache_key, decision)
+                    return decision
             except Exception as exc:  # pragma: no cover - network errors vary by environment
                 logger.warning("Gemini decision attempt %s failed: %s", attempt + 1, exc)
 
@@ -96,37 +127,35 @@ class GeminiPolicy:
         if not self.api_key:
             raise RuntimeError("Gemini API key missing.")
 
+        compact_state = {
+            "hand": game_view.get("hand_id"),
+            "street": game_view.get("street"),
+            "pot": game_view.get("pot"),
+            "board": game_view.get("board"),
+            "hole": game_view.get("opponent_hole_cards"),
+            "stacks": game_view.get("stacks"),
+            "to_call": game_view.get("to_call"),
+        }
         prompt = (
-            "You are a heads-up no-limit Texas Hold'em bot. "
-            "Return exactly one legal action as JSON only. "
-            "Do not include markdown fences or explanations.\n\n"
-            "Allowed schema:\n"
-            "{\"action_type\": \"fold|check|call|bet|raise|all_in\", \"amount\": <integer optional>}\n\n"
-            "Choose from legal_actions only. If action_type is bet/raise/all_in, include amount.\n\n"
-            f"game_view={json.dumps(game_view, separators=(',', ':'))}\n"
+            f"{self._SYSTEM_PROMPT}\n\n"
+            f"state={json.dumps(compact_state, separators=(',', ':'))}\n"
             f"legal_actions={json.dumps(legal_actions, separators=(',', ':'))}"
         )
 
         payload = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {
-                "temperature": 0.2,
+                "temperature": 0.1,
                 "responseMimeType": "application/json",
+                "maxOutputTokens": 32,
             },
         }
 
-        model = urllib.parse.quote(self.model, safe="")
+        model = self.model.replace("/", "%2F")
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
-        data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(url, data=data, method="POST")
-        req.add_header("Content-Type", "application/json")
-
-        try:
-            with urllib.request.urlopen(req, timeout=self.timeout_seconds) as response:
-                response_body = response.read().decode("utf-8")
-        except urllib.error.HTTPError as exc:  # pragma: no cover - depends on network/API state
-            body = exc.read().decode("utf-8", errors="ignore")
-            raise RuntimeError(f"Gemini API HTTP error {exc.code}: {body}") from exc
+        response = self._http.post(url, json=payload)
+        response.raise_for_status()
+        response_body = response.text
 
         parsed = json.loads(response_body)
         text = (
@@ -155,3 +184,44 @@ class GeminiPolicy:
             return json.loads(clean[start : end + 1])
 
         raise ValueError("No JSON object found in Gemini response.")
+
+    def _decision_cache_key(self, game_view: dict[str, Any], legal_actions: list[dict[str, Any]]) -> str:
+        raw = json.dumps(
+            {"gv": game_view, "la": legal_actions},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.blake2b(raw, digest_size=16).hexdigest()
+
+    def _cache_get(self, key: str) -> ActionDecision | None:
+        if self.cache_size <= 0:
+            return None
+        with self._cache_lock:
+            decision = self._decision_cache.get(key)
+            if decision is None:
+                return None
+            self._decision_cache.move_to_end(key)
+            return decision
+
+    def _cache_put(self, key: str, decision: ActionDecision) -> None:
+        if self.cache_size <= 0:
+            return
+        with self._cache_lock:
+            self._decision_cache[key] = decision
+            self._decision_cache.move_to_end(key)
+            while len(self._decision_cache) > self.cache_size:
+                self._decision_cache.popitem(last=False)
+
+    def _fast_path_decision(self, legal_actions: list[dict[str, Any]]) -> ActionDecision | None:
+        if len(legal_actions) == 1:
+            only = legal_actions[0]
+            decision_amount = only.get("max_amount") or only.get("min_amount")
+            if only["type"] in {"bet", "raise", "all_in"}:
+                return ActionDecision(action_type=only["type"], amount=decision_amount)
+            return ActionDecision(action_type=only["type"])
+
+        legal_types = {item["type"] for item in legal_actions}
+        # Purely passive node: checking is always the zero-latency optimal default.
+        if legal_types == {"check"}:
+            return ActionDecision(action_type="check")
+        return None

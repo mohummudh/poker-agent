@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import type { HandReplay, HandSummary } from "../types/game";
 
 interface ReplayPanelProps {
@@ -20,7 +20,7 @@ function winnerLabel(winner: HandSummary["winner"]): string {
   return "Live";
 }
 
-export function ReplayPanel({ handSummaries, replay, onSelectHand }: ReplayPanelProps) {
+export const ReplayPanel = memo(function ReplayPanel({ handSummaries, replay, onSelectHand }: ReplayPanelProps) {
   const [step, setStep] = useState(0);
 
   useEffect(() => {
@@ -86,4 +86,4 @@ export function ReplayPanel({ handSummaries, replay, onSelectHand }: ReplayPanel
       </div>
     </section>
   );
-}
+});

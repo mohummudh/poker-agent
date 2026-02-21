@@ -1,3 +1,4 @@
+import { memo } from "react";
 import coinIcon from "../assets/pixel/coin.svg";
 import chipIcon from "../assets/pixel/chip.svg";
 import type { PlayerState } from "../types/game";
@@ -7,16 +8,29 @@ interface PlayerPanelProps {
   player: PlayerState;
   roleLabel: string;
   revealCards: boolean;
+  speechBubbleText?: string;
 }
 
-export function PlayerPanel({ player, roleLabel, revealCards }: PlayerPanelProps) {
+export const PlayerPanel = memo(function PlayerPanel({
+  player,
+  roleLabel,
+  revealCards,
+  speechBubbleText
+}: PlayerPanelProps) {
   return (
     <section className="pixel-panel player-panel stagger-pop" data-role={player.id}>
       <div className="player-header">
         <div className="player-meta">
           <div className="player-name-line">
             <span className="player-role">{roleLabel}</span>
-            <h2 className="pixel-title-sm">{player.name}</h2>
+            <div className="player-name-row">
+              <h2 className="pixel-title-sm">{player.name}</h2>
+              {speechBubbleText ? (
+                <span className="player-speech-bubble" aria-live="polite">
+                  {speechBubbleText}
+                </span>
+              ) : null}
+            </div>
           </div>
           <div className="chip-stack">
             <img src={chipIcon} alt="" className="pixel-icon" />
@@ -37,4 +51,4 @@ export function PlayerPanel({ player, roleLabel, revealCards }: PlayerPanelProps
       </div>
     </section>
   );
-}
+});

@@ -1,8 +1,11 @@
+import { memo, useMemo } from "react";
 import type { ReplayEvent } from "../types/game";
 
 interface ActionLogProps {
   events: ReplayEvent[];
 }
+
+const LIVE_EVENT_LIMIT = 80;
 
 function amountSuffix(amount?: number): string {
   if (!amount || amount <= 0) {
@@ -11,7 +14,9 @@ function amountSuffix(amount?: number): string {
   return ` ${amount}`;
 }
 
-export function ActionLog({ events }: ActionLogProps) {
+export const ActionLog = memo(function ActionLog({ events }: ActionLogProps) {
+  const visibleEvents = useMemo(() => events.slice(-LIVE_EVENT_LIMIT), [events]);
+
   return (
     <section className="pixel-panel log-panel">
       <header className="panel-header">
@@ -19,7 +24,7 @@ export function ActionLog({ events }: ActionLogProps) {
       </header>
 
       <ol className="action-feed-list">
-        {events.map((event) => (
+        {visibleEvents.map((event) => (
           <li key={event.id} className={`action-feed-item actor-${event.actor}`}>
             <span className="event-street">{event.street.toUpperCase()}</span>
             <span className="event-body">
@@ -31,4 +36,4 @@ export function ActionLog({ events }: ActionLogProps) {
       </ol>
     </section>
   );
-}
+});
